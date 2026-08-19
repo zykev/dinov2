@@ -4,14 +4,21 @@
 # - 计划文件名为 dental_vits14.yaml，但当前可用的官方权重是
 #   dinov2_vitb14_pretrain.pth（vit_base / patch 14），因此本配置使用
 #   student.arch=vit_base + patch_size=14 以匹配官方权重结构
-#   （训练入口仅对 student backbone 做 strict=False 加载，patch embed
-#   与位置编码尺寸一致，无需插值）。
+#   （训练入口仅对 student backbone 做 strict=False 加载；pos_embed 由
+#   scripts/dental/wrap_checkpoint.py 按 global_crops_size 插值，见下）。
+# - 分辨率：crops.global_crops_size=448 与 ours（full_canvas 448）统一。模型
+#   pos_embed 网格 = global_crops_size / patch_size = 32x32，由
+#   dinov2/models/__init__.py::build_model(img_size=cfg.crops.global_crops_size)
+#   决定；wrap_checkpoint.py --global-crops-size 448 会把官方 37x37（518px）
+#   pos_embed 双三次插值到 32x32，两者必须一致（train_dental.sh 已同步）。
+# - local_crops_size 98 是 patch_size(14) 的整数倍（96 % 14 != 0，98 % 14 == 0），
+#   local 分支在 forward 内通过 interpolate_pos_encoding 动态插值，无需与 global 一致。
 # - student.pretrained_weights 由 scripts/dental/train_dental.sh 注入：
 #   官方 checkpoint 为 plain state_dict，脚本会先生成 {"model": ...} 包装
 #   文件再传给本配置（SSLMetaArch 与 fvcore Checkpointer 均要求 "model" key）。
 # - train.dataset_path 由脚本按绝对路径注入；此处保留相对路径形式作为文档。
 # - 若使用 --category_sampling 改变数据集规模，需同步调整
-#   train.OFFICIAL_EPOCH_LENGTH（默认按 68606 records / (64 * num_gpus) 计算）。
+#   train.OFFICIAL_EPOCH_LENGTH（默认按 68606 records / (batch * num_gpus) 计算）。
 
 # 模型规模与初始化（计划 §9.5.2 第 4、5 条）
 student:
@@ -95,7 +102,7 @@ crops:
   global_crops_scale: [0.4, 1.0]
   local_crops_number: 8
   local_crops_scale: [0.05, 0.4]
-  global_crops_size: 224
+  global_crops_size: 448  # 与 ours full_canvas 统一；pos_embed 网格 32x32，wrap_checkpoint 同步插值
   local_crops_size: 98  # 必须为 patch_size(14) 的整数倍：96 % 14 != 0，98 % 14 == 0
 
 # teacher checkpoint 保存周期（12500 iters ≈ 35 epochs @357iters/epoch）
