@@ -17,6 +17,7 @@ from torch.distributed.fsdp import StateDictType
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 from torch.distributed.fsdp._runtime_utils import _reshard
+from torch.distributed.fsdp._common_utils import _get_module_fsdp_state
 
 
 def get_fsdp_wrapper(model_cfg, modules_to_wrap=set()):
@@ -64,9 +65,17 @@ def is_sharded_fsdp(x):
 
 def free_if_fsdp(x):
     if is_sharded_fsdp(x):
-        handles = x._handles
-        true_list = [True for h in handles]
-        _reshard(x, handles, true_list)
+        if hasattr(x, "_handles"):
+            # torch <= 2.0: `_reshard(module, handles, flags)` (module exposes `_handles`)
+            handles = x._handles
+            true_list = [True for h in handles]
+            _reshard(x, handles, true_list)
+        else:
+            # torch >= 2.1: handles live on the FSDP state, accessed via
+            # `_get_module_fsdp_state`; reshard each handle individually.
+            state = _get_module_fsdp_state(x)
+            for handle in state._all_handles:
+                _reshard(state, handle, True)
 
 
 def get_fsdp_modules(x):

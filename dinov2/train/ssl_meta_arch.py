@@ -348,9 +348,16 @@ class SSLMetaArch(nn.Module):
     def fsdp_synchronize_streams(self):
         if self.need_to_synchronize_fsdp_streams:
             torch.cuda.synchronize()
-            self.student.dino_head._streams = (
-                self.teacher.dino_head._streams
-            ) = self.student.backbone._streams = self.teacher.backbone._streams
+            if hasattr(self.student.backbone, "_streams"):
+                # torch <= 2.0: FSDP module exposes `_streams`; share the
+                # student streams with the teacher so they run in lockstep.
+                self.student.dino_head._streams = (
+                    self.teacher.dino_head._streams
+                ) = self.student.backbone._streams = self.teacher.backbone._streams
+            # torch >= 2.1: `_streams` was removed; FSDP now manages streams
+            # internally on the FSDP state (`_default_stream`, `_unshard_stream`,
+            # `_post_backward_stream`, ...) and shares them across states, so
+            # the `torch.cuda.synchronize()` above is all that is needed.
             self.need_to_synchronize_fsdp_streams = False
 
     def update_teacher(self, m):

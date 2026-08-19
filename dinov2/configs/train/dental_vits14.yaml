@@ -1,0 +1,108 @@
+# DINO/DINOv2 牙科 SSL 预训练配置（病例级 split，计划 §9.5.2）
+#
+# 注意：
+# - 计划文件名为 dental_vits14.yaml，但当前可用的官方权重是
+#   dinov2_vitb14_pretrain.pth（vit_base / patch 14），因此本配置使用
+#   student.arch=vit_base + patch_size=14 以匹配官方权重结构
+#   （训练入口仅对 student backbone 做 strict=False 加载，patch embed
+#   与位置编码尺寸一致，无需插值）。
+# - student.pretrained_weights 由 scripts/dental/train_dental.sh 注入：
+#   官方 checkpoint 为 plain state_dict，脚本会先生成 {"model": ...} 包装
+#   文件再传给本配置（SSLMetaArch 与 fvcore Checkpointer 均要求 "model" key）。
+# - train.dataset_path 由脚本按绝对路径注入；此处保留相对路径形式作为文档。
+# - 若使用 --category_sampling 改变数据集规模，需同步调整
+#   train.OFFICIAL_EPOCH_LENGTH（默认按 68606 records / (64 * num_gpus) 计算）。
+
+# 模型规模与初始化（计划 §9.5.2 第 4、5 条）
+student:
+  arch: vit_base          # 匹配官方 dinov2_vitb14_pretrain.pth
+  patch_size: 14
+  drop_path_rate: 0.1     # 小规模数据降低 drop path
+  layerscale: 1.0e-05
+  drop_path_uniform: true
+  pretrained_weights: ''  # 由 train_dental.sh 注入包装后的官方权重
+  ffn_layer: "mlp"
+  block_chunks: 0
+  qkv_bias: true
+  proj_bias: true
+  ffn_bias: true
+  num_register_tokens: 0
+  interpolate_antialias: false
+  interpolate_offset: 0.1
+  in_chans: 3
+  channel_adaptive: false
+
+# EMA teacher（对比学习目标）
+teacher:
+  momentum_teacher: 0.992
+  final_momentum_teacher: 1
+  warmup_teacher_temp: 0.04
+  teacher_temp: 0.07
+  warmup_teacher_temp_epochs: 20
+
+# DINO / iBOT 头
+dino:
+  loss_weight: 1.0
+  head_n_prototypes: 65536
+  head_bottleneck_dim: 256
+  head_nlayers: 3
+  head_hidden_dim: 2048
+  koleo_loss_weight: 0.1
+
+ibot:
+  loss_weight: 1.0
+  mask_sample_probability: 0.5
+  mask_ratio_min_max: [0.1, 0.5]
+  separate_head: false
+  head_n_prototypes: 65536
+  head_bottleneck_dim: 256
+  head_nlayers: 3
+  head_hidden_dim: 2048
+
+# 数据与训练（计划 §9.5.2 第 4 条）
+train:
+  batch_size_per_gpu: 16  # 脚本 train_dental.sh 会按 BATCH_SIZE_PER_GPU 注入覆盖；24GB 卡 vit_base+8 局部 crop 可承受 16
+  dataset_path: "DentalSSLData:root=.datasets/intraoral:split_json=.datasets/intraoral/train_test_seed0_test0p2.json:split=TRAIN:categories=full,tooth,sextant,group"
+  output_dir: exp/dino_dental_v1
+  saveckp_freq: 20
+  seed: 0
+  num_workers: 10
+  OFFICIAL_EPOCH_LENGTH: 714  # 68606 / (16 per GPU * 6 GPU)；脚本按实际 GPU 数覆盖
+  cache_dataset: false         # 原生 loaders.py 未使用该键，仅为配置一致性
+  centering: "centering"       # EMA 中心，小数据量不用 sinkhorn_knopp
+  cell_augmentation: false
+
+# 优化器与调度（有效 batch = 16/卡 * 6 卡 = 96，sqrt_wrt_1024 自动缩放）
+optim:
+  epochs: 200
+  weight_decay: 0.04
+  weight_decay_end: 0.2
+  base_lr: 1.0e-04  # 基准 lr(@batch 1024)；实际 lr = 1e-4 * sqrt(96/1024) ≈ 3.1e-5，继续预训练温和学习率
+  lr: 0
+  warmup_epochs: 20
+  min_lr: 1.0e-06
+  clip_grad: 3.0
+  freeze_last_layer_epochs: 1
+  scaling_rule: sqrt_wrt_1024
+  patch_embed_lr_mult: 0.2
+  layerwise_decay: 0.9
+  adamw_beta1: 0.9
+  adamw_beta2: 0.999
+
+# multi-crop 增强（records 已是预裁剪的 tooth/sextant/group 区域，
+# 因此 global 下界从 0.32 提到 0.4，避免在紧致裁剪内过度放大）
+crops:
+  global_crops_scale: [0.4, 1.0]
+  local_crops_number: 8
+  local_crops_scale: [0.05, 0.4]
+  global_crops_size: 224
+  local_crops_size: 98  # 必须为 patch_size(14) 的整数倍：96 % 14 != 0，98 % 14 == 0
+
+# teacher checkpoint 保存周期（12500 iters ≈ 35 epochs @357iters/epoch）
+evaluation:
+  eval_period_iterations: 12500
+
+# 恢复：train.py 默认 resume=True（FSDPCheckpointer 从 output_dir 自动检测），
+# 首轮无 checkpoint 时从头开始；需要强制从头时传 --no-resume。
+MODEL:
+  WEIGHTS: ''
