@@ -38,10 +38,10 @@ NUM_GPUS="$(echo "${GPUS}" | awk -F',' '{print NF}')"
 DATA_ROOT="${DATA_ROOT:-${WORKSPACE_ROOT}/.datasets/intraoral}"
 SPLIT_JSON="${SPLIT_JSON:-${WORKSPACE_ROOT}/.datasets/intraoral/train_test_seed0_test0p2.json}"
 # 448 分辨率用独立输出目录，避免覆盖已有 224 训练产物（compare manifest 引用旧路径）
-OUTPUT_DIR="${OUTPUT_DIR:-${DINO_ROOT}/exp/dino_dental_v1_448}"
+OUTPUT_DIR="${OUTPUT_DIR:-${DINO_ROOT}/exp/dino_dental_448}"
 INIT_CKPT="${INIT_CKPT:-${WORKSPACE_ROOT}/.checkpoints/intraoral/dinov2_vitb14_pretrain.pth}"
 # 448 下 global crop 为 32x32 tokens（224 时 16x16），attention 开销约 16 倍，batch 调小
-BATCH_SIZE_PER_GPU="${BATCH_SIZE_PER_GPU:-4}"
+BATCH_SIZE_PER_GPU="${BATCH_SIZE_PER_GPU:-8}"
 GLOBAL_CROPS_SIZE="${GLOBAL_CROPS_SIZE:-448}"
 
 # TRAIN_RECORDS = split_json 中 annotations.train 总数（full+tooth+sextant+group）
