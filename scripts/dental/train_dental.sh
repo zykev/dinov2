@@ -7,7 +7,8 @@ set -e
 #   ./scripts/dental/train_dental.sh --no-resume                       # 忽略已有 checkpoint 从头训练
 #   ./scripts/dental/train_dental.sh train.OFFICIAL_EPOCH_LENGTH=500   # 透传其他 config 参数
 #
-# 可覆盖环境变量: GPUS(逗号分隔GPU号) DATA_ROOT SPLIT_JSON OUTPUT_DIR INIT_CKPT TRAIN_RECORDS
+# 可覆盖环境变量: GPUS(空格/逗号/分号分隔的GPU号，元素可带 cuda: 前缀) DATA_ROOT SPLIT_JSON
+#                 OUTPUT_DIR INIT_CKPT TRAIN_RECORDS MASTER_PORT（默认 29501）
 #                 BATCH_SIZE_PER_GPU GLOBAL_CROPS_SIZE(默认448) LOCAL_CROPS_SIZE(默认98)
 #
 # 注意:
@@ -34,10 +35,41 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DINO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 WORKSPACE_ROOT="$(cd "${DINO_ROOT}/../.." && pwd)"
 
-# GPU 列表（逗号分隔，如 "2,3,4,5,6,7"）
+# GPU 列表：分隔符空格 / 逗号 / 分号都接受，元素可带 cuda: 前缀
+#   GPUS="2 3"   GPUS="2,3"   GPUS="cuda:2 cuda:3"   GPUS="2, 3"
 GPUS="${GPUS:-2,3,4,5,6,7}"
-export CUDA_VISIBLE_DEVICES="${GPUS}"
-NUM_GPUS="$(echo "${GPUS}" | awk -F',' '{print NF}')"
+
+# 解析 GPUS -> torchrun 用的 CUDA_VISIBLE_DEVICES 列表与卡数 NUM_GPUS
+# （NUM_GPUS 还参与下面 OFFICIAL_EPOCH_LENGTH 的换算）。
+# set -f：解析期间关闭通配符展开（GPUS 里误写 * ? [ 时不会被 glob 成文件名）。
+CUDA_VISIBLE_DEVICES=""
+NUM_GPUS=0
+set -f
+for GPU in $(printf '%s\n' "${GPUS}" | tr ',;' '  '); do
+    GPU_ID=${GPU#cuda:}
+    case "${GPU_ID}" in
+        ''|*[!0-9]*)
+            echo "[train_dental] ERROR: GPUS 中的 '${GPU}' 不是合法 GPU 序号" >&2
+            echo "  合法写法: GPUS=\"2 3\" / GPUS=\"2,3\" / GPUS=\"cuda:2 cuda:3\"" >&2
+            exit 1
+            ;;
+    esac
+    if [ -z "${CUDA_VISIBLE_DEVICES}" ]; then
+        CUDA_VISIBLE_DEVICES=${GPU_ID}
+    else
+        CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES},${GPU_ID}
+    fi
+    NUM_GPUS=$((NUM_GPUS + 1))
+done
+set +f
+if [ "${NUM_GPUS}" -eq 0 ]; then
+    echo "[train_dental] ERROR: GPUS 为空，应形如 GPUS=\"2 3\" 或 GPUS=\"2,3\"" >&2
+    exit 1
+fi
+export CUDA_VISIBLE_DEVICES
+
+# 分布式 rendezvous 端口：torchrun 默认 29500，本机常被其它任务占用
+MASTER_PORT="${MASTER_PORT:-29501}"
 
 # 数据根目录兼容：优先 .datasets/intraoral，找不到（挂载点缺失 / 符号链接失效）时
 # 回退到 .datasets/intraoral1。显式设置 DATA_ROOT / SPLIT_JSON 时以环境变量为准，不回退。
@@ -107,10 +139,10 @@ PRETRAINED_OPTS="student.pretrained_weights=${WRAPPED_CKPT}"
 EXTRA_ARGS="$@"
 
 cd "${DINO_ROOT}"
-echo "[train_dental] GPUS=${CUDA_VISIBLE_DEVICES} NUM_GPUS=${NUM_GPUS}"
+echo "[train_dental] GPUS=${CUDA_VISIBLE_DEVICES} NUM_GPUS=${NUM_GPUS} MASTER_PORT=${MASTER_PORT}"
 echo "[train_dental] OUTPUT_DIR=${OUTPUT_DIR} OFFICIAL_EPOCH_LENGTH=${OFFICIAL_EPOCH_LENGTH}"
 
-PYTHONPATH=. torchrun --nproc_per_node="${NUM_GPUS}" \
+PYTHONPATH=. torchrun --nproc_per_node="${NUM_GPUS}" --master_port="${MASTER_PORT}" \
     dinov2/train/train.py \
     --config-file dinov2/configs/train/dental_vits14.yaml \
     --output-dir "${OUTPUT_DIR}" \
