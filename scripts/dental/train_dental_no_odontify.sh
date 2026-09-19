@@ -5,15 +5,17 @@ set -e
 #
 # 本脚本是 scripts/dental/train_dental.sh 的「预设包装」：只预设下面 4 个环境变量，
 # 训练超参（dental_vits14 config / GLOBAL_CROPS_SIZE 448 / batch 8 /
-# categories full,tooth,sextant,group / 官方 vitb14 权重初始化 …）全部沿用原脚本，
-# 不在两处重复声明，避免以后改超参时两边漂移。
+# categories full,tooth,sextant,group / 官方 vits14（ViT-Small）权重初始化 …）
+# 全部沿用原脚本，不在两处重复声明，以免以后改超参时两边漂移。
 #
 #   1) SPLIT_JSON  -> <root>/.datasets/intraoral/train_test_seed0_test0p2_no_odontify.json
 #                     新的病例级 split（把 AIDC 纳入训练、排除 odontify 外部集）
 #   2) DATA_ROOT   -> <root>/.datasets/intraoral（intraoral -> intraoral1 回退不变）
-#   3) OUTPUT_DIR  -> exp/dino_dental_448_no_odontify
-#                     与旧的 exp/dino_dental_448 完全隔离：旧产物是 compare/ 各 run 的
-#                     manifest 引用对象，绝不能覆盖。注意 init_checkpoint_wrapped.pth
+#   3) OUTPUT_DIR  -> exp/dino_dental_small_448_no_odontify
+#                     与换 split 前的两个 vits14/vitb14 产物目录都隔离：
+#                     exp/dino_dental_448（vitb14）是 compare/ 各 run 的 manifest 引用对象，
+#                     exp/dino_dental_small_448（原脚本默认）是同一权重的常规 split 产物，
+#                     两者都不能覆盖。注意 init_checkpoint_wrapped.pth
 #                     （pos_embed 插值 sidecar）也随 OUTPUT_DIR 走，新目录会重新生成一份
 #   4) MASTER_PORT -> 29534（torchrun 的 --master_port 是 action=env，会读该环境变量；
 #                     原脚本未显式传 --master_port，默认 29500 常被其它任务占用）
@@ -60,7 +62,8 @@ resolve_dental_path() {
 export DATA_ROOT="${DATA_ROOT:-$(resolve_dental_path "")}"
 export SPLIT_JSON="${SPLIT_JSON:-$(resolve_dental_path "${NEW_SPLIT_SUFFIX}")}"
 # 新 split 用独立输出目录，避免覆盖 compare/ manifest 还在引用的旧产物
-export OUTPUT_DIR="${OUTPUT_DIR:-${DINO_ROOT}/exp/dino_dental_448_no_odontify}"
+# （exp/dino_dental_448 是 vitb14 产物，exp/dino_dental_small_448 是换 split 前的 vits14 产物）
+export OUTPUT_DIR="${OUTPUT_DIR:-${DINO_ROOT}/exp/dino_dental_small_448_no_odontify}"
 export MASTER_PORT="${MASTER_PORT:-29534}"
 
 if [ ! -e "${SPLIT_JSON}" ]; then

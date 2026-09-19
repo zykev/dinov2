@@ -1,11 +1,13 @@
 # DINO/DINOv2 牙科 SSL 预训练配置（病例级 split，计划 §9.5.2）
 #
 # 注意：
-# - 计划文件名为 dental_vits14.yaml，但当前可用的官方权重是
-#   dinov2_vitb14_pretrain.pth（vit_base / patch 14），因此本配置使用
-#   student.arch=vit_base + patch_size=14 以匹配官方权重结构
-#   （训练入口仅对 student backbone 做 strict=False 加载；pos_embed 由
-#   scripts/dental/wrap_checkpoint.py 按 global_crops_size 插值，见下）。
+# - 本配置对应官方 vits14 权重（dinov2_vits14_pretrain.pth，ViT-Small /
+#   patch 14，embed 384 / depth 12 / heads 6），因此 student.arch=vit_small
+#   + patch_size=14 与官方权重结构一致（训练入口仅对 student backbone 做
+#   strict=False 加载；pos_embed 由 scripts/dental/wrap_checkpoint.py 按
+#   global_crops_size 插值，见下）。旧版本曾用 student.arch=vit_base 匹配
+#   当时唯一可用的 dinov2_vitb14_pretrain.pth；若需回到 vitb14，改回 arch=vit_base
+#   并把 train_dental.sh 的 INIT_CKPT/OUTPUT_DIR 换回 vitb14 / exp/dino_dental_448。
 # - 分辨率：crops.global_crops_size=448 与 ours（full_canvas 448）统一。模型
 #   pos_embed 网格 = global_crops_size / patch_size = 32x32，由
 #   dinov2/models/__init__.py::build_model(img_size=cfg.crops.global_crops_size)
@@ -25,7 +27,7 @@
 
 # 模型规模与初始化（计划 §9.5.2 第 4、5 条）
 student:
-  arch: vit_base          # 匹配官方 dinov2_vitb14_pretrain.pth
+  arch: vit_small         # 匹配官方 dinov2_vits14_pretrain.pth（embed 384 / depth 12 / heads 6）
   patch_size: 14
   drop_path_rate: 0.1     # 小规模数据降低 drop path
   layerscale: 1.0e-05
@@ -71,9 +73,9 @@ ibot:
 
 # 数据与训练（计划 §9.5.2 第 4 条）
 train:
-  batch_size_per_gpu: 16  # 脚本 train_dental.sh 会按 BATCH_SIZE_PER_GPU 注入覆盖；24GB 卡 vit_base+8 局部 crop 可承受 16
+  batch_size_per_gpu: 16  # 脚本 train_dental.sh 会按 BATCH_SIZE_PER_GPU 注入覆盖；24GB 卡 vit_small+8 局部 crop 可承受 16
   dataset_path: "DentalSSLData:root=.datasets/intraoral:split_json=.datasets/intraoral/train_test_seed0_test0p2.json:split=TRAIN:categories=full,tooth,sextant,group"
-  output_dir: exp/dino_dental_v1
+  output_dir: exp/dino_dental_small_448  # 实际由 train_dental.sh 的 --output-dir 覆盖；此处仅为直接 python -m dinov2.train 时的参考
   saveckp_freq: 20
   seed: 0
   num_workers: 10
