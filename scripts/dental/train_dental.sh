@@ -57,10 +57,27 @@ INIT_CKPT="${INIT_CKPT:-${WORKSPACE_ROOT}/.checkpoints/intraoral/dinov2_vitb14_p
 BATCH_SIZE_PER_GPU="${BATCH_SIZE_PER_GPU:-8}"
 GLOBAL_CROPS_SIZE="${GLOBAL_CROPS_SIZE:-448}"
 
-# TRAIN_RECORDS = split_json 中 annotations.train 总数（full+tooth+sextant+group）
-TRAIN_RECORDS="${TRAIN_RECORDS:-68606}"
+# TRAIN_RECORDS = split_json 中 train 分区展开后的 records 总数（full+tooth+sextant+group）。
+# 直接由 count_train_records.py 从 (DATA_ROOT, SPLIT_JSON) 现算（复用数据集本身的 build_records，
+# 因此换 split 时无需手改，也不会与 dataloader 实际遍历的样本数漂移）；显式设置 TRAIN_RECORDS
+# 时以环境变量为准。若计算失败（依赖缺失等），回退到历史「仅自有采集者」split 的值 68606 并告警。
+if [ -z "${TRAIN_RECORDS:-}" ]; then
+    TRAIN_RECORDS="$(python "${SCRIPT_DIR}/count_train_records.py" \
+        --root "${DATA_ROOT}" --split_json "${SPLIT_JSON}" \
+        --split train --categories "full,tooth,sextant,group" 2>/dev/null || true)"
+fi
+if [ -z "${TRAIN_RECORDS:-}" ]; then
+    TRAIN_RECORDS=68606
+    echo "[train_dental] WARNING: 无法从 ${SPLIT_JSON} 推导 TRAIN_RECORDS，回退到历史值 ${TRAIN_RECORDS}。" \
+         "若 split 已变，OFFICIAL_EPOCH_LENGTH 会偏小，请显式设置 TRAIN_RECORDS。" >&2
+fi
+echo "[train_dental] TRAIN_RECORDS=${TRAIN_RECORDS} (derived from $(basename "${SPLIT_JSON}"))"
 OFFICIAL_EPOCH_LENGTH=$((TRAIN_RECORDS / (BATCH_SIZE_PER_GPU * NUM_GPUS)))
-[ "${OFFICIAL_EPOCH_LENGTH}" -lt 1 ] && OFFICIAL_EPOCH_LENGTH=1
+# 用 if 而非 `[ ... ] && ...`：后者在条件为假时会让 AND-OR list 以非零退出，
+# 在 set -e 下是有风险的写法（当前 bash 不退出，但语义上不值得依赖）。
+if [ "${OFFICIAL_EPOCH_LENGTH}" -lt 1 ]; then
+    OFFICIAL_EPOCH_LENGTH=1
+fi
 
 # 官方 dinov2_vitb14_pretrain.pth 是 plain state_dict，SSLMetaArch / fvcore
 # Checkpointer 要求 {"model": ...} 包装；wrap_checkpoint.py 负责包装并插值 pos_embed

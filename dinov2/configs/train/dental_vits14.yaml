@@ -18,7 +18,10 @@
 #   文件再传给本配置（SSLMetaArch 与 fvcore Checkpointer 均要求 "model" key）。
 # - train.dataset_path 由脚本按绝对路径注入；此处保留相对路径形式作为文档。
 # - 若使用 --category_sampling 改变数据集规模，需同步调整
-#   train.OFFICIAL_EPOCH_LENGTH（默认按 68606 records / (batch * num_gpus) 计算）。
+#   train.OFFICIAL_EPOCH_LENGTH。默认值不写死：train_dental.sh 调用
+#   scripts/dental/count_train_records.py 从当前 SPLIT_JSON 现算 train records 数，
+#   再按 records / (batch_size_per_gpu * num_gpus) 覆盖本项（可用 TRAIN_RECORDS 显式指定）。
+#   直接 `python -m dinov2.train` 时才会用到本文件里的 714（对应历史 split）。
 
 # 模型规模与初始化（计划 §9.5.2 第 4、5 条）
 student:
@@ -74,7 +77,10 @@ train:
   saveckp_freq: 20
   seed: 0
   num_workers: 10
-  OFFICIAL_EPOCH_LENGTH: 714  # 68606 / (16 per GPU * 6 GPU)；脚本按实际 GPU 数覆盖
+  OFFICIAL_EPOCH_LENGTH: 714  # 历史「仅自有采集者」split: 68606 / (16 per GPU * 6 GPU)。
+                               # 仅作直接 `python -m dinov2.train` 时的兜底默认值；
+                               # train_dental.sh 会用 count_train_records.py 按实际 SPLIT_JSON
+                               # 现算并以 train.OFFICIAL_EPOCH_LENGTH=... 覆盖，换 split 时以脚本为准。
   cache_dataset: false         # 原生 loaders.py 未使用该键，仅为配置一致性
   centering: "centering"       # EMA 中心，小数据量不用 sinkhorn_knopp
   cell_augmentation: false
