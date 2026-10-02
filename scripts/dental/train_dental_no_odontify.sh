@@ -9,7 +9,7 @@ set -e
 # 用法（先 conda activate intraoral；从任意目录运行也可，路径自动解析）:
 #   ./scripts/dental/train_dental_no_odontify.sh
 #   ./scripts/dental/train_dental_no_odontify.sh --no-resume
-#   EPOCHS=50 ./scripts/dental/train_dental_no_odontify.sh   # 改总训练轮数（默认 100）
+#   EPOCHS=80 ./scripts/dental/train_dental_no_odontify.sh   # 改总训练轮数（默认 50）
 #   ./scripts/dental/train_dental_no_odontify.sh train.OFFICIAL_EPOCH_LENGTH=500   # 透传其他 config 参数
 #
 # 可覆盖环境变量:
@@ -24,7 +24,7 @@ set -e
 #   BATCH_SIZE_PER_GPU  默认 8
 #   GLOBAL_CROPS_SIZE   默认 448
 #   LOCAL_CROPS_SIZE    默认 98
-#   EPOCHS           默认 100（注入 optim.epochs，覆盖 config dental_vits14.yaml 的 200）
+#   EPOCHS           默认 50（注入 optim.epochs，覆盖 config dental_vits14.yaml 的 200）
 #
 # 注意:
 #   - 骨架：官方 vits14 = ViT-Small（embed 384 / depth 12 / heads 6），与 config
@@ -43,7 +43,7 @@ set -e
 #     （14 的整数倍），local 分支在 forward 内动态插值 pos_embed，无需改动。
 #   - OFFICIAL_EPOCH_LENGTH 按 train records / (batch_size_per_gpu * NUM_GPUS) 自动计算，
 #     它是「每个 epoch 的 iteration 数」而非轮数；总迭代数 = optim.epochs × OFFICIAL_EPOCH_LENGTH。
-#     optim.epochs 由本脚本按 EPOCHS（默认 100）注入。
+#     optim.epochs 由本脚本按 EPOCHS（默认 50）注入。
 #
 # 前置（一次性，约 40s；已存在则不会覆盖）:
 #   python datasets/split.py --data_root .datasets/intraoral --exclude_dirs odontify \
@@ -120,7 +120,8 @@ INIT_CKPT="${INIT_CKPT:-${WORKSPACE_ROOT}/.checkpoints/intraoral/dinov2_vits14_p
 BATCH_SIZE_PER_GPU="${BATCH_SIZE_PER_GPU:-8}"
 GLOBAL_CROPS_SIZE="${GLOBAL_CROPS_SIZE:-448}"
 # 总训练轮数：注入 optim.epochs 覆盖 config dental_vits14.yaml 里的 200
-EPOCHS="${EPOCHS:-100}"
+# （由 100 减半为 50，与 mae / swin-mae / simclrv2 脚本保持一致）
+EPOCHS="${EPOCHS:-50}"
 
 if [ ! -e "${SPLIT_JSON}" ]; then
     echo "[train_dental_no_odontify] ERROR: split 不存在: ${SPLIT_JSON}" >&2
